@@ -136,7 +136,7 @@ contract AuctionTest is Test {
         assert(endTimeExtended == endTime + 10 minutes);
     }
 
-    function test_ownerCanEndAuctionAtAnyTime() public {
+    function test_auctionEnds() public {
         //create auction
         vm.startPrank(owner);
         auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
@@ -207,6 +207,227 @@ contract AuctionTest is Test {
 
         //assert bidder 2 owns NFT
         assert(nft.ownerOf(0) == bidder2);
+    }
+
+    function test_thereCanBeParallelAuctions() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //create another auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 5 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //bidder1 bids for auction id 0
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //bidder2 bids for auction id 0
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 2.1 ether}(0);
+        vm.stopPrank();
+
+        //bidder1 bids for auction id 1
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 5.2 ether}(1);
+        vm.stopPrank();
+    }
+
+    function test_endAuctionNoBids() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //warp 60 minutes
+        vm.warp(block.timestamp + 60 minutes);
+
+        //end auction
+        vm.startPrank(owner);
+        auction.endAuction(0);
+        vm.stopPrank();
+
+        //assert auction ended (returns boolean), 0 is the auction id, do not confuse with enums, we're not using enums
+        assert(auction.getAuctionStatus(0));
+
+        //nft is burned
+        //non existent token error
+        vm.expectRevert("ERC721NonexistentToken(0)");
+        nft.ownerOf(0);
+    }
+
+    function test_endAuctionFailsIfTimeHasNotPassed() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //warp 50 minutes
+        vm.warp(block.timestamp + 50 minutes);
+
+        //end auction
+        vm.startPrank(owner);
+        vm.expectRevert("Auction has not ended");
+        auction.endAuction(0);
+        vm.stopPrank();
+    }
+
+    function test_cancelAuctionIfNoBids() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //cancel auction
+        vm.startPrank(owner);
+        auction.cancelAuction(0);
+        vm.stopPrank();
+
+        //assert auction ended (returns boolean), 0 is the auction id, do not confuse with enums, we're not using enums
+        assert(auction.getAuctionStatus(0));
+
+        //nft is burned
+        //non existent token error
+        vm.expectRevert("ERC721NonexistentToken(0)");
+        nft.ownerOf(0);
+    }
+
+    function test_cancelAuctionFailsIfThereAreBids() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //bidder1 bids
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //cancel auction
+        vm.startPrank(owner);
+        vm.expectRevert("Auction has bidders already");
+        auction.cancelAuction(0);
+        vm.stopPrank();
+    }
+
+    function test_withdrawPendingReturns() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //bidder1 bids
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //get bidder 1 balance
+        uint256 bidder1Balance = bidder1.balance;
+
+        //bidder2 bids
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 1.2 ether}(0);
+        vm.stopPrank();
+
+        //bidder2 can't withdraw
+        vm.startPrank(bidder2);
+        vm.expectRevert("Highest bidder cannot withdraw");
+        auction.withdrawPendingReturns(0);
+        vm.stopPrank();
+
+        //bidder1 withdraws
+        vm.startPrank(bidder1);
+        auction.withdrawPendingReturns(0);
+        vm.stopPrank();
+
+        //get bidder 1 balance after withdraw
+        uint256 bidder1BalanceAfterWithdraw = bidder1.balance;
+
+        //assert bidder 1 balance is higher
+        assert(bidder1BalanceAfterWithdraw == bidder1Balance + 1.1 ether);
+    }
+
+    function test_multipleAuctionBidding() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //create another auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 5 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //get bidders balances
+        uint256 bidder1Balance = bidder1.balance;
+        uint256 bidder2Balance = bidder2.balance;
+
+        //bidder1 bids for auction id 0
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //bidder2 bids for auction id 0
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 2.1 ether}(0);
+        vm.stopPrank();
+
+        //bidder1 bids for auction id 1
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 5.2 ether}(1);
+        vm.stopPrank();
+
+        //bidder2 bids for auction id 1
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 6.2 ether}(1);
+        vm.stopPrank();
+
+        //bidder1 withdraws from auction id 0
+        vm.startPrank(bidder1);
+        auction.withdrawPendingReturns(0);
+        vm.stopPrank();
+
+        //get bidder 1 balance after withdraw
+        uint256 bidder1BalanceAfterWithdraw = bidder1.balance;
+
+        //assert bidder 1 balance only decreased by his bid amount to auction id 1
+        //i.e. he got his bid amount back from the previous auction id of 0
+        assert(bidder1BalanceAfterWithdraw == bidder1Balance - 5.2 ether);
+    }
+
+    function test_endAuction() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+        //get owner balance
+        uint256 ownerBalance = owner.balance;
+
+        //bidder1 bids
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //bidder2 bids
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 1.2 ether}(0);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 60 minutes);
+
+        //end auction
+        vm.startPrank(owner);
+        auction.endAuction(0);
+        vm.stopPrank();
+
+        //assert auction ended (returns boolean), 0 is the auction id, do not confuse with enums, we're not using enums
+        assert(auction.getAuctionStatus(0));
+
+        //assert owner balance is higher
+        assert(owner.balance == ownerBalance + 1.2 ether);
     }
 }
 
