@@ -79,9 +79,11 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
 
     function placeBid(uint256 tokenId) external payable {
         AuctionData storage auction = auctions[tokenId];
+        //check that auction exists
+        require(auction.endTime != 0, "Auction does not exist");
         require(!auction.ended, "Auction has ended");
         require(block.timestamp < auction.endTime, "Auction has ended");
-        require(msg.value > auction.highestBid + auction.minimumBidIncrement, "Bid too low");
+        require(msg.value >= auction.highestBid + auction.minimumBidIncrement, "Bid too low");
         //if bid is withing the 10 minute period before the endTime, extend the auction by 10 minutes
         if (block.timestamp > auction.endTime - 600) {
             auction.endTime += 600;
@@ -100,14 +102,14 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
 
     function cancelAuction(uint256 tokenId) external onlyOwner {}
 
-    // function withdrawPendingReturns() external nonReentrant {
-    //     uint256 amount = pendingReturns[msg.sender];
-    //     require(amount > 0, "No pending returns");
-    //     pendingReturns[msg.sender] = 0;
-    //     //use low level call
-    //     (bool success,) = payable(msg.sender).call{value: amount}();
-    //     require(success, "Transfer failed");
-    // }
+    function withdrawPendingReturns() external nonReentrant {
+        uint256 amount = pendingReturns[msg.sender];
+        require(amount > 0, "No pending returns");
+        pendingReturns[msg.sender] = 0;
+        //use low level call
+        (bool success,) = payable(msg.sender).call{value: amount}("");
+        require(success, "Transfer failed");
+    }
 
     function withdrawFunds() external onlyOwner {}
 

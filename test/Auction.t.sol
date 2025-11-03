@@ -42,5 +42,27 @@ contract AuctionTest is Test {
         auction.createAuction("tokenURI", 1 ether, 10 minutes, 0.1 ether);
         vm.stopPrank();
     }
+
+    function test_onlyAuctionContractCanMintNFT() public {
+        vm.startPrank(owner);
+        vm.expectRevert();
+        nft.mint(owner, "tokenURI");
+        vm.stopPrank();
+    }
+
+    function test_usersCanBid() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+        //bid
+        vm.startPrank(bidder1);
+        //should fail with Bid too low
+        vm.expectRevert("Bid too low");
+        auction.placeBid{value: 1 ether}(0);
+        //this should pass fine
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+    }
 }
 

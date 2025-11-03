@@ -12,7 +12,7 @@ contract EnglishAuctionNFT is ERC721, ERC721URIStorage, Ownable {
     event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI);
 
     modifier onlyAuctionContract() {
-        require(msg.sender == auctionContract, "EnglishAuctionNFT: Only auction contract can call this function");
+        _onlyAuctionContract();
         _;
     }
 
@@ -39,5 +39,10 @@ contract EnglishAuctionNFT is ERC721, ERC721URIStorage, Ownable {
 
     function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
+    }
+
+    //modifier functions to reduce code size
+    function _onlyAuctionContract() internal {
+        require(msg.sender == auctionContract, "EnglishAuctionNFT: Only auction contract can call this function");
     }
 }
