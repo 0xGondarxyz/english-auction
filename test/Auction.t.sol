@@ -16,9 +16,12 @@ contract AuctionTest is Test {
     address public bidder3 = makeAddr("bidder3");
 
     function setUp() public {
+        nft = new EnglishAuctionNFT(owner);
+        auction = new Auction(owner);
+
         vm.startPrank(owner);
-        nft = new EnglishAuctionNFT();
-        auction = new Auction(address(nft));
+        auction.setNFTContract(address(nft));
+        nft.setAuctionContract(address(auction));
         vm.stopPrank();
 
         //deal 100 eth to bidders
@@ -29,6 +32,13 @@ contract AuctionTest is Test {
 
     function testCreateAuction() public {
         vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 10 minutes, 0.1 ether);
+        vm.stopPrank();
+    }
+
+    function test_onlyOwnerCanCreateAuction() public {
+        vm.startPrank(bidder1);
+        vm.expectRevert();
         auction.createAuction("tokenURI", 1 ether, 10 minutes, 0.1 ether);
         vm.stopPrank();
     }

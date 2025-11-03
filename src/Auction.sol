@@ -2,15 +2,16 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 import "./EnglishAuctionNFT.sol";
 
-contract Auction is Ownable {
+contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
     EnglishAuctionNFT public nftContract;
 
-    constructor(address nftAddress) {
-        nftContract = EnglishAuctionNFT(nftAddress);
-    }
+    constructor(address initialOwner) Ownable(initialOwner) {}
 
     /**
      *
@@ -25,8 +26,7 @@ contract Auction is Ownable {
      * Minimum bid increment
      * Status (active/ended/cancelled)
      */
-
-    struct Auction {
+    struct AuctionData {
         uint256 tokenId;
         address seller;
         uint256 startingPrice;
@@ -41,9 +41,16 @@ contract Auction is Ownable {
     //we use this to store the amount of money that is pending to be returned to the bidder after being outbid
     mapping(address => uint256) public pendingReturns;
     //we use this to store the auctions
-    mapping(uint256 => Auction) public auctions;
+    mapping(uint256 => AuctionData) public auctions;
 
     event AuctionCreated(uint256 indexed tokenId, uint256 startingPrice, uint256 duration, uint256 minimumBidIncrement);
+    event AuctionBid(uint256 indexed tokenId, address indexed bidder, uint256 amount);
+    event AuctionEnded(uint256 indexed tokenId, address indexed winner, uint256 amount);
+    event AuctionCancelled(uint256 indexed tokenId);
+
+    function setNFTContract(address nftAddress) external onlyOwner {
+        nftContract = EnglishAuctionNFT(nftAddress);
+    }
 
     function createAuction(
         string memory tokenURI,
@@ -54,7 +61,7 @@ contract Auction is Ownable {
         // This will work because Auction contract is authorized
         uint256 tokenId = nftContract.mint(address(this), tokenURI);
         // ... rest of auction logic
-        Auction memory auction = Auction({
+        AuctionData memory auction = AuctionData({
             tokenId: tokenId,
             seller: msg.sender,
             startingPrice: startingPrice,
@@ -71,7 +78,7 @@ contract Auction is Ownable {
     }
 
     function placeBid(uint256 tokenId) external payable {
-        Auction storage auction = auctions[tokenId];
+        AuctionData storage auction = auctions[tokenId];
         require(!auction.ended, "Auction has ended");
         require(block.timestamp < auction.endTime, "Auction has ended");
         require(msg.value > auction.highestBid + auction.minimumBidIncrement, "Bid too low");
@@ -93,19 +100,19 @@ contract Auction is Ownable {
 
     function cancelAuction(uint256 tokenId) external onlyOwner {}
 
-    function withdrawPendingReturns() external nonReentrant {
-        uint256 amount = pendingReturns[msg.sender];
-        require(amount > 0, "No pending returns");
-        pendingReturns[msg.sender] = 0;
-        //use low level call
-        (bool success,) = payable(msg.sender).call{value: amount}();
-        require(success, "Transfer failed");
-    }
+    // function withdrawPendingReturns() external nonReentrant {
+    //     uint256 amount = pendingReturns[msg.sender];
+    //     require(amount > 0, "No pending returns");
+    //     pendingReturns[msg.sender] = 0;
+    //     //use low level call
+    //     (bool success,) = payable(msg.sender).call{value: amount}();
+    //     require(success, "Transfer failed");
+    // }
 
     function withdrawFunds() external onlyOwner {}
 
     //getter functions
-    function getAuction(uint256 tokenId) external view returns (Auction memory) {
+    function getAuction(uint256 tokenId) external view returns (AuctionData memory) {
         return auctions[tokenId];
     }
 
