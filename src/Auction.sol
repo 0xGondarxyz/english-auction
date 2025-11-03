@@ -39,7 +39,8 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
         bool ended;
     }
     //we use this to store the amount of money that is pending to be returned to the bidder after being outbid
-    mapping(address => uint256) public pendingReturns;
+    //address to auction id to amount
+    mapping(address => mapping(uint256 => uint256)) public pendingReturns;
     //we use this to store the auctions
     mapping(uint256 => AuctionData) public auctions;
 
@@ -47,9 +48,19 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
     event AuctionBid(uint256 indexed tokenId, address indexed bidder, uint256 amount);
     event AuctionEnded(uint256 indexed tokenId, address indexed winner, uint256 amount);
     event AuctionCancelled(uint256 indexed tokenId);
+    event pendingReturnWithdrawn(uint256 indexed tokenId, address indexed bidder, uint256 amount);
 
     function setNFTContract(address nftAddress) external onlyOwner {
         nftContract = EnglishAuctionNFT(nftAddress);
+    }
+
+    //pausing functionality
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     function createAuction(
@@ -58,6 +69,9 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
         uint256 duration,
         uint256 minimumBidIncrement
     ) external onlyOwner {
+        require(startingPrice > 0, "Starting price must be greater than 0");
+        require(duration > 0, "Duration must be greater than 0");
+        require(minimumBidIncrement > 0, "Minimum bid increment must be greater than 0");
         // This will work because Auction contract is authorized
         uint256 tokenId = nftContract.mint(address(this), tokenURI);
         // ... rest of auction logic
@@ -77,7 +91,7 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
         emit AuctionCreated(tokenId, startingPrice, duration, minimumBidIncrement);
     }
 
-    function placeBid(uint256 tokenId) external payable {
+    function placeBid(uint256 tokenId) external payable nonReentrant whenNotPaused {
         AuctionData storage auction = auctions[tokenId];
         //check that auction exists
         require(auction.endTime != 0, "Auction does not exist");
@@ -92,26 +106,76 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
         // if (auction.highestBidder != address(0)) {
         //     payable(auction.highestBidder).transfer(auction.highestBid);
         // }
-        pendingReturns[auction.highestBidder] = auction.highestBid;
+        if (auction.highestBidder != address(0)) {
+            pendingReturns[auction.highestBidder][tokenId] += auction.highestBid;
+        }
         auction.highestBid = msg.value;
         auction.highestBidder = msg.sender;
         emit AuctionBid(tokenId, msg.sender, msg.value);
     }
 
-    function endAuction(uint256 tokenId) external onlyOwner {}
+    // end auction and transfer the profit to the seller
+    //if there are no bids for the auction, burn the NFT
+    //anyone can end the auction if the auction time has passed
+    function endAuction(uint256 tokenId) external nonReentrant whenNotPaused {
+        AuctionData storage auction = auctions[tokenId];
+        require(auction.endTime != 0, "Auction does not exist");
+        require(block.timestamp >= auction.endTime, "Auction has not ended");
+        require(!auction.ended, "Auction has ended");
+        auction.ended = true;
+        if (auction.highestBidder == address(0)) {
+            nftContract.burn(tokenId);
+        }
+        //get the highest bid amount
+        uint256 highestBid = auction.highestBid;
+        // if highest bidders is NOT address zero transfer the highest bid to the seller with low level call method
+        if (auction.highestBidder != address(0)) {
+            (bool success,) = payable(auction.seller).call{value: highestBid}("");
+            require(success, "Transfer failed");
+        }
+        emit AuctionEnded(tokenId, auction.highestBidder, auction.highestBid);
+    }
 
-    function cancelAuction(uint256 tokenId) external onlyOwner {}
+    //owner can cancel auction and burn the NFT if the auction has no bids yet
+    function cancelAuction(uint256 tokenId) external onlyOwner {
+        AuctionData storage auction = auctions[tokenId];
+        require(auction.endTime != 0, "Auction does not exist");
+        //Should check highestBidder == address(0) (no bids placed)
+        require(auction.highestBidder == address(0), "Auction has bidders already");
+        require(!auction.ended, "Auction has ended");
+        auction.ended = true;
+        nftContract.burn(tokenId);
+        emit AuctionCancelled(tokenId);
+    }
 
-    function withdrawPendingReturns() external nonReentrant {
-        uint256 amount = pendingReturns[msg.sender];
+    //can only call this function if you are NOT the highest bidder
+    function withdrawPendingReturns(uint256 tokenId) external nonReentrant whenNotPaused {
+        AuctionData storage auction = auctions[tokenId];
+        //check that the auctions exists
+        require(auction.endTime != 0, "Auction does not exist");
+        //check if the caller is the highest bidder
+        require(msg.sender != auction.highestBidder, "Highest bidder cannot withdraw");
+        uint256 amount = pendingReturns[msg.sender][tokenId];
         require(amount > 0, "No pending returns");
-        pendingReturns[msg.sender] = 0;
+        pendingReturns[msg.sender][tokenId] = 0;
         //use low level call
         (bool success,) = payable(msg.sender).call{value: amount}("");
         require(success, "Transfer failed");
+        emit pendingReturnWithdrawn(tokenId, msg.sender, amount);
     }
 
-    function withdrawFunds() external onlyOwner {}
+    //withdraw the payment for the auction NFT
+    //this function should be called with endAuction() function
+    //and withdraw only the highest bidders amount for the current auction
+    // function withdrawProfit() external onlyOwner {}
+
+    function claimNFT(uint256 tokenId) external nonReentrant whenNotPaused {
+        AuctionData storage auction = auctions[tokenId];
+        require(auction.endTime != 0, "Auction does not exist");
+        require(auction.ended, "Auction has not ended");
+        require(msg.sender == auction.highestBidder, "Not the highest bidder");
+        nftContract.safeTransferFrom(address(this), msg.sender, auction.tokenId);
+    }
 
     //getter functions
     function getAuction(uint256 tokenId) external view returns (AuctionData memory) {
@@ -139,6 +203,8 @@ contract Auction is Ownable2Step, ReentrancyGuard, Pausable {
     }
 
     function getRemainingTime(uint256 tokenId) external view returns (uint256) {
+        //getRemainingTime can underflow - If auction ended, endTime - block.timestamp will underflow. Add a check or return 0.
+        if (block.timestamp >= auctions[tokenId].endTime) return 0;
         return auctions[tokenId].endTime - block.timestamp;
     }
 }

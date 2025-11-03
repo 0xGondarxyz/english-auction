@@ -135,5 +135,78 @@ contract AuctionTest is Test {
         assert(endTimeExtended > endTime);
         assert(endTimeExtended == endTime + 10 minutes);
     }
+
+    function test_ownerCanEndAuctionAtAnyTime() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //bidder1 bids
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //warp 60 minutes
+        vm.warp(block.timestamp + 60 minutes);
+        //end auction
+        vm.startPrank(owner);
+        auction.endAuction(0);
+        vm.stopPrank();
+
+        //assert auction ended (returns boolean), 0 is the auction id, do not confuse with enums, we're not using enums
+        assert(auction.getAuctionStatus(0));
+
+        //bidder can't bid now
+        vm.startPrank(bidder2);
+        vm.expectRevert("Auction has ended");
+        auction.placeBid{value: 1.2 ether}(0);
+        vm.stopPrank();
+    }
+
+    function test_winnerClaimNFT() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+
+        //bidder1 bids
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //warp 20 minutes
+        vm.warp(block.timestamp + 20 minutes);
+
+        //bidder 2 bids
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 1.2 ether}(0);
+        vm.stopPrank();
+
+        //warp 50 minutes, which will mean the auction will end
+        vm.warp(block.timestamp + 50 minutes);
+
+        //end auction
+        vm.startPrank(owner);
+        auction.endAuction(0);
+        vm.stopPrank();
+
+        //assert auction ended (returns boolean), 0 is the auction id, do not confuse with enums, we're not using enums
+        assert(auction.getAuctionStatus(0));
+
+        //bidder1 cannot claim NFT
+        vm.startPrank(bidder1);
+        vm.expectRevert("Not the highest bidder");
+        auction.claimNFT(0);
+        vm.stopPrank();
+
+        //bidder 2 claims NFT
+        vm.startPrank(bidder2);
+        auction.claimNFT(0);
+        vm.stopPrank();
+
+        //assert bidder 2 owns NFT
+        assert(nft.ownerOf(0) == bidder2);
+    }
 }
 

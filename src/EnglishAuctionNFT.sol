@@ -33,6 +33,10 @@ contract EnglishAuctionNFT is ERC721, ERC721URIStorage, Ownable {
         return tokenId;
     }
 
+    function burn(uint256 tokenId) external onlyAuctionContract {
+        _burn(tokenId);
+    }
+
     function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
         return super.tokenURI(tokenId);
     }
