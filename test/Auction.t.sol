@@ -64,5 +64,76 @@ contract AuctionTest is Test {
         auction.placeBid{value: 1.1 ether}(0);
         vm.stopPrank();
     }
+
+    function test_multipleUsersBid() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+        //bid
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+        //bid
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 1.2 ether}(0);
+        vm.stopPrank();
+        //bid
+        vm.startPrank(bidder3);
+        //should fail with Bid too low
+        vm.expectRevert("Bid too low");
+        auction.placeBid{value: 1.2 ether}(0);
+        //this should pass fine
+        auction.placeBid{value: 1.3 ether}(0);
+        vm.stopPrank();
+    }
+
+    function test_cannotBidToNonexistentAuction() public {
+        vm.startPrank(bidder1);
+        vm.expectRevert("Auction does not exist");
+        auction.placeBid{value: 1 ether}(0);
+        vm.stopPrank();
+    }
+
+    function test_cannotBidToWrongID() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+        //bid
+        vm.startPrank(bidder1);
+        vm.expectRevert("Auction does not exist");
+        auction.placeBid{value: 1.1 ether}(1);
+        vm.stopPrank();
+    }
+
+    function test_biddingLastMinuteExtendsAuctionEndTime() public {
+        //create auction
+        vm.startPrank(owner);
+        auction.createAuction("tokenURI", 1 ether, 60 minutes, 0.1 ether);
+        vm.stopPrank();
+        //bid
+        vm.startPrank(bidder1);
+        auction.placeBid{value: 1.1 ether}(0);
+        vm.stopPrank();
+
+        //get auction end time
+        uint256 endTime = auction.getAuctionEndTime(0);
+        console.log("End time: ", endTime);
+
+        //wait for 59 minutes
+        vm.warp(block.timestamp + 59 minutes);
+        //bid
+        vm.startPrank(bidder2);
+        auction.placeBid{value: 1.2 ether}(0);
+        vm.stopPrank();
+
+        //get auction end time extended
+        uint256 endTimeExtended = auction.getAuctionEndTime(0);
+        console.log("End time extended: ", endTimeExtended);
+
+        assert(endTimeExtended > endTime);
+        assert(endTimeExtended == endTime + 10 minutes);
+    }
 }
 
